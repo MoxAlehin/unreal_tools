@@ -18,7 +18,6 @@
 
 # <pep8 compliant>
 
-
 bl_info = {
     "name": "Vertex Animation",
     "author": "Joshua Bogart",
@@ -31,10 +30,8 @@ bl_info = {
     "category": "Unreal Tools",
 }
 
-
 import bpy
 import bmesh
-
 
 def get_per_frame_mesh_data(context, data, objects):
     """Return a list of combined mesh data per frame"""
@@ -57,8 +54,7 @@ def get_per_frame_mesh_data(context, data, objects):
         meshes.append(me)
     return meshes
 
-
-def create_export_mesh_object(context, data, me):
+def create_export_mesh_object(context, data, me, name, material):
     """Return a mesh object with correct UVs"""
     while len(me.uv_layers) < 2:
         me.uv_layers.new()
@@ -66,12 +62,16 @@ def create_export_mesh_object(context, data, me):
     uv_layer.name = "vertex_anim"
     for loop in me.loops:
         uv_layer.data[loop.index].uv = (
-            (loop.vertex_index + 0.5)/len(me.vertices), 128/255
+            (loop.vertex_index + 0.5) / len(me.vertices), 128 / 255
         )
-    ob = data.objects.new("export_mesh", me)
+    ob = data.objects.get(name)
+    if ob:
+        bpy.data.objects.remove(ob)
+    ob = data.objects.new(name, me)
     context.scene.collection.objects.link(ob)
+    if material:
+        ob.data.materials.append(material)
     return ob
-
 
 def get_vertex_data(data, meshes):
     """Return lists of vertex offsets and normals from a list of mesh data"""
@@ -89,35 +89,40 @@ def get_vertex_data(data, meshes):
             data.meshes.remove(me)
     return offsets, normals
 
-
 def frame_range(scene):
     """Return a range object with with scene's frame start, end, and step"""
     return range(scene.frame_start, scene.frame_end, scene.frame_step)
 
-
-def bake_vertex_data(data, offsets, normals, size):
-    """Stores vertex offsets and normals in seperate image textures"""
+def bake_vertex_data(data, offsets, normals, size, name):
+    """Stores vertex offsets and normals in separate image textures"""
     width, height = size
-    offset_texture = data.images.new(
-        name="offsets",
-        width=width,
-        height=height,
-        alpha=True,
-        float_buffer=True
-    )
-    normal_texture = data.images.new(
-        name="normals",
-        width=width,
-        height=height,
-        alpha=True
-    )
+    offset_texture = data.images.get(f"T_{name}_O")
+    if offset_texture:
+        offset_texture.scale(width, height)
+    else:
+        offset_texture = data.images.new(
+            name=f"T_{name}_O",
+            width=width,
+            height=height,
+            alpha=True,
+            float_buffer=True
+        )
+    normal_texture = data.images.get(f"T_{name}_N")
+    if normal_texture:
+        normal_texture.scale(width, height)
+    else:
+        normal_texture = data.images.new(
+            name=f"T_{name}_N",
+            width=width,
+            height=height,
+            alpha=True
+        )
     offset_texture.pixels = offsets
     normal_texture.pixels = normals
 
-
 class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
     """Store combined per frame vertex offsets and normals for all
-    selected mesh objects into seperate image textures"""
+    selected mesh objects into separate image textures"""
     bl_idname = "object.process_anim_meshes"
     bl_label = "Process Anim Meshes"
 
@@ -142,6 +147,8 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
         objects = [ob for ob in context.selected_objects if ob.type == 'MESH']
         vertex_count = sum([len(ob.data.vertices) for ob in objects])
         frame_count = len(frame_range(context.scene))
+        current_frame = context.scene.frame_current
+        
         for ob in objects:
             for mod in ob.modifiers:
                 if mod.type not in self.allowed_modifiers:
@@ -155,27 +162,33 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
                 {'ERROR'},
                 "Scene Unit must be Metric with a Unit Scale of 0.01!"
             )
-            return {'CANCELLED'}        
+            return {'CANCELLED'}
         if vertex_count > 8192:
             self.report(
                 {'ERROR'},
-                f"Vertex count of {vertex_count :,}, execedes limit of 8,192!"
+                f"Vertex count of {vertex_count :,}, exceeds limit of 8,192!"
             )
             return {'CANCELLED'}
         if frame_count > 8192:
             self.report(
                 {'ERROR'},
-                f"Frame count of {frame_count :,}, execedes limit of 8,192!"
+                f"Frame count of {frame_count :,}, exceeds limit of 8,192!"
             )
             return {'CANCELLED'}
+        
         meshes = get_per_frame_mesh_data(context, data, objects)
         export_mesh_data = meshes[0].copy()
-        create_export_mesh_object(context, data, export_mesh_data)
-        offsets, normals = get_vertex_data(data, meshes)
-        texture_size = vertex_count, frame_count
-        bake_vertex_data(data, offsets, normals, texture_size)
+        
+        for ob in objects:
+            name = ob.name + "_VA"
+            material = ob.active_material
+            create_export_mesh_object(context, data, export_mesh_data, name, material)
+            offsets, normals = get_vertex_data(data, meshes)
+            texture_size = vertex_count, frame_count
+            bake_vertex_data(data, offsets, normals, texture_size, ob.name)
+        
+        context.scene.frame_set(current_frame)
         return {'FINISHED'}
-
 
 class VIEW3D_PT_VertexAnimation(bpy.types.Panel):
     """Creates a Panel in 3D Viewport"""
@@ -197,16 +210,13 @@ class VIEW3D_PT_VertexAnimation(bpy.types.Panel):
         row = layout.row()
         row.operator("object.process_anim_meshes")
 
-
 def register():
     bpy.utils.register_class(OBJECT_OT_ProcessAnimMeshes)
     bpy.utils.register_class(VIEW3D_PT_VertexAnimation)
 
-
 def unregister():
     bpy.utils.unregister_class(OBJECT_OT_ProcessAnimMeshes)
     bpy.utils.unregister_class(VIEW3D_PT_VertexAnimation)
-
 
 if __name__ == "__main__":
     register()
