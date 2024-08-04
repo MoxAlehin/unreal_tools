@@ -54,24 +54,16 @@ def get_per_frame_mesh_data(context, data, objects):
         meshes.append(me)
     return meshes
 
-def create_export_mesh_object(context, data, me, name, material):
-    """Return a mesh object with correct UVs"""
-    while len(me.uv_layers) < 2:
-        me.uv_layers.new()
-    uv_layer = me.uv_layers[1]
-    uv_layer.name = "vertex_anim"
+def update_uv_layer(me):
+    """Update or create UV layer for vertex animation"""
+    uv_layer = me.uv_layers.get("vertex_anim")
+    if not uv_layer:
+        uv_layer = me.uv_layers.new(name="vertex_anim")
     for loop in me.loops:
         uv_layer.data[loop.index].uv = (
             (loop.vertex_index + 0.5) / len(me.vertices), 128 / 255
         )
-    ob = data.objects.get(name)
-    if ob:
-        bpy.data.objects.remove(ob)
-    ob = data.objects.new(name, me)
-    context.scene.collection.objects.link(ob)
-    if material:
-        ob.data.materials.append(material)
-    return ob
+    return uv_layer
 
 def get_vertex_data(data, meshes):
     """Return lists of vertex offsets and normals from a list of mesh data"""
@@ -177,12 +169,8 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
             return {'CANCELLED'}
         
         meshes = get_per_frame_mesh_data(context, data, objects)
-        export_mesh_data = meshes[0].copy()
-        
         for ob in objects:
-            name = ob.name + "_VA"
-            material = ob.active_material
-            create_export_mesh_object(context, data, export_mesh_data, name, material)
+            update_uv_layer(ob.data)
             offsets, normals = get_vertex_data(data, meshes)
             texture_size = vertex_count, frame_count
             bake_vertex_data(data, offsets, normals, texture_size, ob.name)
