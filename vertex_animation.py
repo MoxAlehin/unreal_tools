@@ -21,7 +21,7 @@
 bl_info = {
     "name": "Vertex Animation",
     "author": "Mox Alehin",
-    "version": (1, 2),
+    "version": (1, 3),
     "blender": (4, 0, 1),
     "location": "View3D > Sidebar > Unreal Tools Tab",
     "description": "A tool for storing per frame vertex data for use in a vertex shader.",
@@ -32,6 +32,7 @@ bl_info = {
 
 import bpy
 import bmesh
+import math
 
 def get_per_frame_mesh_data(context, data, objects):
     """Return a list of combined mesh data per frame"""
@@ -54,6 +55,30 @@ def get_per_frame_mesh_data(context, data, objects):
         meshes.append(me)
     return meshes
 
+def find_max_deviation(meshes):
+    """Find the maximum vertex offset (deviation)"""
+    max_deviation = 0.0
+    original = meshes[0].vertices
+    
+    for me in reversed(meshes):
+        for v in me.vertices:
+            offset = (v.co - original[v.index].co).length
+            if offset > max_deviation:
+                max_deviation = offset
+    return max_deviation
+
+def calculate_scale(max_deviation):
+    """Calculate the scale factor with a safety margin, returning an integer scale"""
+    scale_factor = 1.0
+    
+    # Set an arbitrary maximum allowed deviation in UE units (e.g., 0.01 Unreal units)
+    max_allowed_deviation = 0.01
+    
+    if max_deviation > 0:
+        scale_factor = math.ceil(max_deviation / max_allowed_deviation)
+    
+    return scale_factor
+
 def update_uv_layer(me):
     """Update or create UV layer for vertex animation"""
     uv_layer = me.uv_layers.get("vertex_anim")
@@ -65,7 +90,7 @@ def update_uv_layer(me):
         )
     return uv_layer
 
-def get_vertex_data(data, meshes):
+def get_vertex_data(data, meshes, scale_factor):
     """Return lists of vertex offsets and normals from a list of mesh data"""
     original = meshes[0].vertices
     offsets = []
@@ -76,7 +101,7 @@ def get_vertex_data(data, meshes):
     
     for me in reversed(meshes):
         for v in me.vertices:
-            offset = v.co - original[v.index].co
+            offset = (v.co - original[v.index].co) * scale_factor
             x, y, z = offset
             if coord_system == 'BLENDER':
                 offsets.extend((x, -y, z, 1))  # Blender: Y Forward, Z Up
@@ -93,26 +118,29 @@ def frame_range(scene):
     """Return a range object with with scene's frame start, end, and step"""
     return range(scene.frame_start, scene.frame_end, scene.frame_step)
 
-def bake_vertex_data(data, offsets, normals, size, name):
+def bake_vertex_data(data, offsets, normals, size, name, scale_factor):
     """Stores vertex offsets and normals in separate image textures"""
     width, height = size
-    offset_texture = data.images.get(f"T_{name}_O")
+    wpo_texture_name = f"T_{name}_Scale{scale_factor}_O"
+    normal_texture_name = f"T_{name}_N"
+
+    offset_texture = data.images.get(wpo_texture_name)
     if offset_texture:
         offset_texture.scale(width, height)
     else:
         offset_texture = data.images.new(
-            name=f"T_{name}_O",
+            name=wpo_texture_name,
             width=width,
             height=height,
             alpha=True,
             float_buffer=True
         )
-    normal_texture = data.images.get(f"T_{name}_N")
+    normal_texture = data.images.get(normal_texture_name)
     if normal_texture:
         normal_texture.scale(width, height)
     else:
         normal_texture = data.images.new(
-            name=f"T_{name}_N",
+            name=normal_texture_name,
             width=width,
             height=height,
             alpha=True
@@ -142,7 +170,6 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
         return ob and ob.type == 'MESH' and ob.mode == 'OBJECT'
 
     def execute(self, context):
-        units = context.scene.unit_settings
         data = bpy.data
         objects = [ob for ob in context.selected_objects if ob.type == 'MESH']
         vertex_count = sum([len(ob.data.vertices) for ob in objects])
@@ -157,12 +184,6 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
                         f"Objects with {mod.type.title()} modifiers are not allowed!"
                     )
                     return {'CANCELLED'}
-        if units.system != 'METRIC' or round(units.scale_length, 2) != 0.01:
-            self.report(
-                {'ERROR'},
-                "Scene Unit must be Metric with a Unit Scale of 0.01!"
-            )
-            return {'CANCELLED'}
         if vertex_count > 8192:
             self.report(
                 {'ERROR'},
@@ -177,11 +198,14 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
             return {'CANCELLED'}
         
         meshes = get_per_frame_mesh_data(context, data, objects)
+        max_deviation = find_max_deviation(meshes)
+        scale_factor = calculate_scale(max_deviation)
+
         for ob in objects:
             update_uv_layer(ob.data)
-            offsets, normals = get_vertex_data(data, meshes)
+            offsets, normals = get_vertex_data(data, meshes, scale_factor)
             texture_size = vertex_count, frame_count
-            bake_vertex_data(data, offsets, normals, texture_size, ob.name)
+            bake_vertex_data(data, offsets, normals, texture_size, ob.name, scale_factor)
         
         context.scene.frame_set(current_frame)
         return {'FINISHED'}
