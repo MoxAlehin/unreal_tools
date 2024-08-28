@@ -20,13 +20,13 @@
 
 bl_info = {
     "name": "Vertex Animation",
-    "author": "Joshua Bogart",
-    "version": (1, 0),
+    "author": "Mox Alehin",
+    "version": (1, 2),
     "blender": (4, 0, 1),
     "location": "View3D > Sidebar > Unreal Tools Tab",
     "description": "A tool for storing per frame vertex data for use in a vertex shader.",
     "warning": "",
-    "doc_url": "",
+    "doc_url": "https://github.com/MoxAlehin/unreal_tools",
     "category": "Unreal Tools",
 }
 
@@ -70,13 +70,21 @@ def get_vertex_data(data, meshes):
     original = meshes[0].vertices
     offsets = []
     normals = []
+    
+    # Get the current coordinate system
+    coord_system = bpy.context.scene.coord_system
+    
     for me in reversed(meshes):
         for v in me.vertices:
             offset = v.co - original[v.index].co
             x, y, z = offset
-            offsets.extend((x, -y, z, 1))
-            x, y, z = v.normal
-            normals.extend(((x + 1) * 0.5, (-y + 1) * 0.5, (z + 1) * 0.5, 1))
+            if coord_system == 'BLENDER':
+                offsets.extend((x, -y, z, 1))  # Blender: Y Forward, Z Up
+                normals.extend(((v.normal.x + 1) * 0.5, (-v.normal.y + 1) * 0.5, (v.normal.z + 1) * 0.5, 1))
+            elif coord_system == 'UE':
+                offsets.extend((-y, -x, z, 1))  # Unreal Engine: X Forward, Z Up
+                normals.extend(((v.normal.y + 1) * 0.5, (v.normal.x + 1) * 0.5, (v.normal.z + 1) * 0.5, 1))
+                
         if not me.users:
             data.meshes.remove(me)
     return offsets, normals
@@ -195,16 +203,30 @@ class VIEW3D_PT_VertexAnimation(bpy.types.Panel):
         col.prop(scene, "frame_start", text="Frame Start")
         col.prop(scene, "frame_end", text="End")
         col.prop(scene, "frame_step", text="Step")
+        
+        # Add a drop-down list to select a coordinate system
+        col.prop(scene, "coord_system", text="Coordinate System")
+        
         row = layout.row()
         row.operator("object.process_anim_meshes")
 
 def register():
+    bpy.types.Scene.coord_system = bpy.props.EnumProperty(
+        name="Coordinate System",
+        description="Choose the coordinate system for texture baking",
+        items=[
+            ('BLENDER', "Blender", "Use Blender's coordinate system (Y Forward, Z Up)"),
+            ('UE', "UE", "Use Unreal Engine's coordinate system (X Forward, Z Up)"),
+        ],
+        default='BLENDER',
+    )
     bpy.utils.register_class(OBJECT_OT_ProcessAnimMeshes)
     bpy.utils.register_class(VIEW3D_PT_VertexAnimation)
 
 def unregister():
     bpy.utils.unregister_class(OBJECT_OT_ProcessAnimMeshes)
     bpy.utils.unregister_class(VIEW3D_PT_VertexAnimation)
+    del bpy.types.Scene.coord_system
 
 if __name__ == "__main__":
     register()

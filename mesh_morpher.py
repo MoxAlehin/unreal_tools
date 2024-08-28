@@ -21,7 +21,7 @@
 
 bl_info = {
     "name": "Mesh Morpher",
-    "author": "Joshua Bogart",
+    "author": "Mox Alehin",
     "version": (1, 1),
     "blender": (4, 0, 1),
     "location": "View3D > Sidebar > Unreal Tools Tab",
