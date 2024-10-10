@@ -253,6 +253,11 @@ class VIEW3D_PT_VertexAnimation(bpy.types.Panel):
         row = layout.row()
         row.operator("object.process_anim_meshes")
 
+        # Add vertex group picker
+        obj = context.object
+        if obj and obj.type == 'MESH':
+            col.prop_search(scene, "vertex_group_name", obj, "vertex_groups", text="Vertex Group")
+
 def register():
     bpy.types.Scene.coord_system = bpy.props.EnumProperty(
         name="Coordinate System",
@@ -273,10 +278,17 @@ def register():
     bpy.utils.register_class(OBJECT_OT_ProcessAnimMeshes)
     bpy.utils.register_class(VIEW3D_PT_VertexAnimation)
 
+    bpy.types.Scene.vertex_group_name = bpy.props.StringProperty(
+        name="Vertex Group",
+        description="Select a vertex group to use for vertex animation"
+    )
+
 def unregister():
     bpy.utils.unregister_class(OBJECT_OT_ProcessAnimMeshes)
     bpy.utils.unregister_class(VIEW3D_PT_VertexAnimation)
     del bpy.types.Scene.coord_system
+    del bpy.types.Scene.target_units
+    del bpy.types.Scene.vertex_group_name
 
 if __name__ == "__main__":
     register()
