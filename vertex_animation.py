@@ -55,6 +55,24 @@ def get_per_frame_mesh_data(context, data, objects):
         meshes.append(me)
     return meshes
 
+# Define available target units and corresponding max deviation values
+TARGET_UNITS = [
+    ('MM', "Millimeters", "Export as millimeters"),
+    ('CM', "Centimeters", "Export as centimeters"),
+    ('DM', "Decimeters", "Export as decimeters"),
+    ('M', "Meters", "Export as meters")
+]
+
+def get_max_allowed_deviation(target_unit):
+    """Return max allowed deviation based on selected target units"""
+    conversion_factors = {
+        'M' : 1.0,    # 1 meter
+        'DM': 0.1,    # 1 decimeter
+        'CM': 0.01,   # 1 centimeter
+        'MM': 0.001,  # 1 millimeter
+    }
+    return conversion_factors.get(target_unit, 0.01)  # Default to centimeters
+
 def find_max_deviation(meshes):
     """Find the maximum vertex offset (deviation)"""
     max_deviation = 0.0
@@ -67,12 +85,12 @@ def find_max_deviation(meshes):
                 max_deviation = offset
     return max_deviation
 
-def calculate_scale(max_deviation):
+def calculate_scale(max_deviation, target_unit):
     """Calculate the scale factor with a safety margin, returning an integer scale"""
     scale_factor = 1.0
     
-    # Set an arbitrary maximum allowed deviation in UE units (e.g., 0.01 Unreal units)
-    max_allowed_deviation = 0.01
+    """Calculate the scale factor based on the selected target units"""
+    max_allowed_deviation = get_max_allowed_deviation(target_unit)
     
     if max_deviation > 0:
         scale_factor = math.ceil(max_deviation / max_allowed_deviation)
@@ -108,7 +126,7 @@ def get_vertex_data(data, meshes, scale_factor):
                 normals.extend(((v.normal.x + 1) * 0.5, (-v.normal.y + 1) * 0.5, (v.normal.z + 1) * 0.5, 1))
             elif coord_system == 'UE':
                 offsets.extend((-y, -x, z, 1))  # Unreal Engine: X Forward, Z Up
-                normals.extend(((v.normal.y + 1) * 0.5, (v.normal.x + 1) * 0.5, (v.normal.z + 1) * 0.5, 1))
+                normals.extend(((-v.normal.y + 1) * 0.5, (-v.normal.x + 1) * 0.5, (v.normal.z + 1) * 0.5, 1))
                 
         if not me.users:
             data.meshes.remove(me)
@@ -175,6 +193,7 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
         vertex_count = sum([len(ob.data.vertices) for ob in objects])
         frame_count = len(frame_range(context.scene))
         current_frame = context.scene.frame_current
+        target_unit = context.scene.target_units
         
         for ob in objects:
             for mod in ob.modifiers:
@@ -199,7 +218,7 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
         
         meshes = get_per_frame_mesh_data(context, data, objects)
         max_deviation = find_max_deviation(meshes)
-        scale_factor = calculate_scale(max_deviation)
+        scale_factor = calculate_scale(max_deviation, target_unit)
 
         for ob in objects:
             update_uv_layer(ob.data)
@@ -230,7 +249,7 @@ class VIEW3D_PT_VertexAnimation(bpy.types.Panel):
         
         # Add a drop-down list to select a coordinate system
         col.prop(scene, "coord_system", text="Coordinate System")
-        
+        col.prop(scene, "target_units", text="Target Units")
         row = layout.row()
         row.operator("object.process_anim_meshes")
 
@@ -243,6 +262,13 @@ def register():
             ('UE', "UE", "Use Unreal Engine's coordinate system (X Forward, Z Up)"),
         ],
         default='BLENDER',
+    )
+    # Add property to the scene for selecting target units
+    bpy.types.Scene.target_units = bpy.props.EnumProperty(
+        name="Target Units",
+        description="Choose the target units for export",
+        items=TARGET_UNITS,
+        default='CM'
     )
     bpy.utils.register_class(OBJECT_OT_ProcessAnimMeshes)
     bpy.utils.register_class(VIEW3D_PT_VertexAnimation)
