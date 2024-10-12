@@ -97,15 +97,50 @@ def calculate_scale(max_deviation, target_unit):
     
     return scale_factor
 
-def update_uv_layer(me):
-    """Update or create UV layer for vertex animation"""
-    uv_layer = me.uv_layers.get("vertex_anim")
+def update_uv_layer(ob, vertex_group_name=None):
+    """Update or create UV layer for vertex animation, considering a vertex group"""
+    me = ob.data  # Получаем меш через объект
+    uv_layer = me.uv_layers.get("VAT")
     if not uv_layer:
-        uv_layer = me.uv_layers.new(name="vertex_anim")
+        uv_layer = me.uv_layers.new(name="VAT")
+    
+    # Проверяем, существует ли vertex group с заданным именем
+    if vertex_group_name and vertex_group_name in ob.vertex_groups:
+        group_index = ob.vertex_groups[vertex_group_name].index
+        # Составляем список индексов вершин, которые входят в vertex group
+        group_vertices = {v.index for v in me.vertices if group_index in [g.group for g in v.groups]}
+        total_group_vertices = len(group_vertices)
+    else:
+        # Если группы нет или она пуста, работаем как в исходном алгоритме
+        group_vertices = None
+        total_group_vertices = len(me.vertices)
+    
+    # Переменные для распределения лупов
+    current_group_position = 0
+    uv_for_vertex = {}  # Словарь для хранения UV-координат для каждой вершины
+
     for loop in me.loops:
-        uv_layer.data[loop.index].uv = (
-            (loop.vertex_index + 0.5) / len(me.vertices), 128 / 255
-        )
+        vertex_index = loop.vertex_index
+        
+        # Проверяем, принадлежит ли вершина группе
+        vertex_in_group = group_vertices is None or vertex_index in group_vertices
+        
+        if vertex_index not in uv_for_vertex:
+            # Если для вершины еще не рассчитаны UV-координаты, вычисляем их
+            if vertex_in_group:
+                # Вершина в группе или группы нет, используем исходный алгоритм
+                uv = ((current_group_position + 1.5) / (total_group_vertices + 1), 0.5)
+                current_group_position += 1
+            else:
+                # Вершина не в группе, размещаем её слева
+                uv = (0.5 / (total_group_vertices + 1), 0.5)
+            
+            # Сохраняем UV-координаты для этой вершины
+            uv_for_vertex[vertex_index] = uv
+        
+        # Применяем UV-координаты ко всем лупам, связанным с этой вершиной
+        uv_layer.data[loop.index].uv = uv_for_vertex[vertex_index]
+    
     return uv_layer
 
 def get_vertex_data(data, meshes, scale_factor):
@@ -221,7 +256,7 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
         scale_factor = calculate_scale(max_deviation, target_unit)
 
         for ob in objects:
-            update_uv_layer(ob.data)
+            update_uv_layer(ob, context.scene.vertex_group_name)
             offsets, normals = get_vertex_data(data, meshes, scale_factor)
             texture_size = vertex_count, frame_count
             bake_vertex_data(data, offsets, normals, texture_size, ob.name, scale_factor)
