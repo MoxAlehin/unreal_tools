@@ -143,8 +143,10 @@ def update_uv_layer(ob, vertex_group_name=None):
     
     return uv_layer
 
-def get_vertex_data(data, meshes, scale_factor):
-    """Return lists of vertex offsets and normals from a list of mesh data"""
+def get_vertex_data(data, meshes, scale_factor, vertex_group_name=None):
+    """Return lists of vertex offsets and normals from a list of mesh data,
+    with optional filtering by vertex group."""
+    
     original = meshes[0].vertices
     offsets = []
     normals = []
@@ -153,7 +155,19 @@ def get_vertex_data(data, meshes, scale_factor):
     coord_system = bpy.context.scene.coord_system
     
     for me in reversed(meshes):
+        # Get the vertex group by name if provided
+        vertex_group = me.vertex_groups.get(vertex_group_name) if vertex_group_name else None
+        group_indices = set()
+        
+        if vertex_group:
+            # Get the indices of the vertices that are part of the group
+            group_indices = {v.index for v in me.vertices if any(g.group == vertex_group.index for g in v.groups)}
+        
         for v in me.vertices:
+            # If vertex group is provided, only process vertices that are part of the group
+            if vertex_group and v.index not in group_indices:
+                continue
+            
             offset = (v.co - original[v.index].co) * scale_factor
             x, y, z = offset
             if coord_system == 'BLENDER':
@@ -165,6 +179,7 @@ def get_vertex_data(data, meshes, scale_factor):
                 
         if not me.users:
             data.meshes.remove(me)
+    
     return offsets, normals
 
 def frame_range(scene):
@@ -257,7 +272,7 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
 
         for ob in objects:
             update_uv_layer(ob, context.scene.vertex_group_name)
-            offsets, normals = get_vertex_data(data, meshes, scale_factor)
+            offsets, normals = get_vertex_data(data, meshes, scale_factor, context.scene.vertex_group_name)
             texture_size = vertex_count, frame_count
             bake_vertex_data(data, offsets, normals, texture_size, ob.name, scale_factor)
         
