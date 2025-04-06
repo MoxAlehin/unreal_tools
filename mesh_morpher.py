@@ -54,10 +54,16 @@ def get_shape_key_offsets(shape_keys, num_shape_keys):
         target = keys[i].data
         for v1, v2 in zip(target, original):
             x, y, z = v1.co - v2.co
-            offsets[(i-1) * 3 + 0].append(x)
-            offsets[(i-1) * 3 + 1].append(y)
-            offsets[(i-1) * 3 + 2].append(z)
-    
+
+            # Apply Unreal Engine coordinate system transformation
+            ue_x = -y    # Blender Y becomes UE X
+            ue_y = x   # Blender -X becomes UE Y
+            ue_z = z    # Z stays as is
+
+            offsets[(i-1) * 3 + 0].append(ue_x)
+            offsets[(i-1) * 3 + 1].append(ue_y)
+            offsets[(i-1) * 3 + 2].append(ue_z)
+
     return offsets
 
 def pack_offsets(ob, offsets, start_uv_index):
