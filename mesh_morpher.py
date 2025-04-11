@@ -75,8 +75,31 @@ def pack_offsets(ob, offsets, start_uv_index):
     if required_uv_layers > 8:
         raise ValueError("Not enough UV layers to store the specified number of shape keys.")
     
-    while len(me.uv_layers) < required_uv_layers:
-        me.uv_layers.new()
+    axes = ['X', 'Y', 'Z']
+    existing = len(me.uv_layers)
+    uv_index = 0
+    morph_index = 1
+    axis_index = 0
+
+    while uv_index + existing < required_uv_layers:
+        name_parts = []
+
+        # Первые две компоненты
+        for _ in range(2):
+            axis = axes[axis_index % 3]
+            name_parts.append(f"{morph_index}{axis}")
+            axis_index += 1
+            if axis == 'Z':
+                morph_index += 1
+
+        # Если это последний UV и осей всего нечетное количество — оставляем только одну компоненту
+        if uv_index + existing == required_uv_layers - 1 and axis_index % 3 != 0:
+            name = f"Morph {name_parts[0]}"
+        else:
+            name = f"Morph {' '.join(name_parts)}"
+
+        me.uv_layers.new(name=name)
+        uv_index += 1
 
     for loop in me.loops:
         vertex_index = loop.vertex_index
